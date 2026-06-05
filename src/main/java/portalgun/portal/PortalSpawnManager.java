@@ -8,6 +8,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.Vec3d;
 import qouteall.imm_ptl.core.McHelper;
+import qouteall.imm_ptl.core.portal.GeometryPortalShape;
 import qouteall.imm_ptl.core.portal.Portal;
 import qouteall.q_misc_util.my_util.DQuaternion;
 import portalgun.PortalColor;
@@ -22,6 +23,7 @@ public class PortalSpawnManager {
 	private static final double PORTAL_W = 1.0;
 	private static final double PORTAL_H = 2.0;
 	private static final double SURFACE_OFFSET = 0.01; // чуть «над» поверхностью
+	private static final int ELLIPSE_SEGMENTS = 48;   // гладкость овала
 
 	// playerUUID -> (слот -> UUID портала)
 	private static final Map<UUID, EnumMap<PortalColor, UUID>> OWNED = new HashMap<>();
@@ -69,6 +71,7 @@ public class PortalSpawnManager {
 		portal.setOrientationAndSize(axisW.normalize(), axisH.normalize(), PORTAL_W, PORTAL_H);
 		portal.setDestinationDimension(world.getRegistryKey());
 		portal.setDestination(origin); // временно, до линковки пары
+		portal.specialShape = buildEllipseShape(); // овальная дыра как в Portal 2
 		PortalColorAccess.set(portal, channel, rgb);
 
 		// удалить старый портал того же слота у этого игрока
@@ -79,11 +82,27 @@ public class PortalSpawnManager {
 		}
 
 		McHelper.spawnServerEntity(portal);
-		portal.reloadAndSyncToClientNextTick(); // пересчёт bounding box / коллизии на всю высоту
+		portal.reloadAndSyncToClientNextTick(); // пересчёт bounding box / коллизии + формы
 		remember(player, channel, portal.getUuid());
 		PortalIndex.rebuild(world);
 
 		linkPair(world, player);
+	}
+
+	// ---- эллипс в нормализованных координатах [-1,1] (веер треугольников) ----
+	private static GeometryPortalShape buildEllipseShape() {
+		GeometryPortalShape shape = new GeometryPortalShape();
+		for (int i = 0; i < ELLIPSE_SEGMENTS; i++) {
+			double a1 = 2.0 * Math.PI * i / ELLIPSE_SEGMENTS;
+			double a2 = 2.0 * Math.PI * (i + 1) / ELLIPSE_SEGMENTS;
+			shape.triangles.add(new GeometryPortalShape.TriangleInPlane(
+				0.0, 0.0,
+				Math.cos(a1), Math.sin(a1),
+				Math.cos(a2), Math.sin(a2)
+			));
+		}
+		shape.normalized = true; // уже в нормализованных координатах
+		return shape;
 	}
 
 	// ---- линковка пары ----
