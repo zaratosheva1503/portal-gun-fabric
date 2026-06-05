@@ -10,23 +10,20 @@ import qouteall.imm_ptl.core.portal.Portal;
 
 /**
  * Сохранение модуля скорости при переходе через портал (Portal 2 momentum).
- * Имя метода transformVelocity может отличаться по версиям IP — сверить по декомпиляции.
+ * Исправлено: реальный метод IP — transformVelocityRelativeToPortal(Vec3, Entity),
+ * а не несуществующий transformVelocity.
  */
 @Mixin(Portal.class)
 public abstract class PortalVelocityMixin {
 
-	@Inject(method = "transformVelocity", at = @At("RETURN"), cancellable = true)
-	private void portalgun$preserveMomentum(Entity entity, CallbackInfoReturnable<Vec3d> cir) {
-		Portal self = (Portal) (Object) this;
-
-		Vec3d inVel = entity.getVelocity();
-		double inSpeed = inVel.length();
+	@Inject(method = "transformVelocityRelativeToPortal", at = @At("RETURN"), cancellable = true)
+	private void portalgun$preserveMomentum(Vec3d originalVel, Entity entity, CallbackInfoReturnable<Vec3d> cir) {
+		double inSpeed = originalVel.length();
 		if (inSpeed < 1.0e-4) return;
 
 		Vec3d rotated = cir.getReturnValue();
-		if (rotated == null || rotated.lengthSquared() < 1.0e-8) {
-			rotated = self.transformLocalVecNonScale(inVel);
-		}
+		if (rotated == null || rotated.lengthSquared() < 1.0e-8) return;
+
 		double boost = 1.0; // 1.0 = чистое сохранение; >1.0 = разгон
 		cir.setReturnValue(rotated.normalize().multiply(inSpeed * boost));
 	}

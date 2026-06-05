@@ -28,7 +28,8 @@ public final class PortalFluidManager {
 		if (world.getTime() % PERIOD != 0) return;
 
 		for (Portal portal : PortalIndex.all()) {
-			if (portal.getDestination() == null) continue;
+			// исправлено: было getDestination() — такого метода нет, правильно getDestPos()
+			if (portal.getDestPos() == null) continue;
 
 			Vec3d normal = portal.getNormal();
 			BlockPos entryFront = BlockPos.ofFloored(
