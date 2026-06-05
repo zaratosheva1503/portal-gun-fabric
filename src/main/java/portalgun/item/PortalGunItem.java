@@ -112,7 +112,20 @@ public class PortalGunItem extends Item {
 			RaycastContext.FluidHandling.NONE,
 			player
 		));
-		if (hit.getType() != HitResult.Type.BLOCK) return;
+
+		// §12: если перед прицелом нет блока (целимся в небо/пустоту) — роняем луч вниз
+		// из точки прицеливания и кладём портал на пол под ней (как в Portal 2).
+		if (hit.getType() != HitResult.Type.BLOCK) {
+			Vec3d downStart = end;
+			Vec3d downEnd = end.add(0.0, -MAX_DISTANCE, 0.0);
+			hit = world.raycast(new RaycastContext(
+				downStart, downEnd,
+				RaycastContext.ShapeType.COLLIDER,
+				RaycastContext.FluidHandling.NONE,
+				player
+			));
+			if (hit.getType() != HitResult.Type.BLOCK) return;
+		}
 
 		PortalSpawnManager.placePortal(world, player, channel, rgb, hit);
 	}

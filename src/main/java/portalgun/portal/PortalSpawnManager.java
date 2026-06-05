@@ -11,6 +11,7 @@ import qouteall.imm_ptl.core.McHelper;
 import qouteall.imm_ptl.core.portal.Portal;
 import qouteall.imm_ptl.core.portal.PortalManipulation;
 import portalgun.PortalColor;
+import portalgun.PortalGunConfig;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -79,6 +80,10 @@ public class PortalSpawnManager {
 		// тогда можно проваливаться сквозь пол/потолок, проходить в прыжке и пропускать снаряды.
 		portal.hasCrossPortalCollision = true;
 		portal.teleportable = true;
+		// §15/§7/§4: НЕ меняем направление гравитации при переходе. Иначе на полу/потолке
+		// игрока — и моба, и связку «наездник+маунт» (свинья, лошадь и т.п.) —
+		// разворачивает по гравитации портала и вдавливает в соседние блоки.
+		portal.setTeleportChangesGravity(false);
 		PortalColorAccess.set(portal, channel, rgb);
 
 		// удалить старый портал того же слота у этого игрока
@@ -123,8 +128,15 @@ public class PortalSpawnManager {
 		orange.setDestinationDimension(blue.getOriginDim());
 		orange.setDestination(blue.getOriginPos());
 
-		// Штатный расчёт разворота IP (с флипом вокруг axisH).
-		PortalManipulation.adjustRotationToConnect(blue, orange);
+		// §13: разворот вида включается/выключается конфигом config/portalgun.json.
+		if (PortalGunConfig.get().rotateCameraOnTeleport) {
+			// Штатный расчёт разворота IP (с флипом вокруг axisH) — вид корректно ориентируется.
+			PortalManipulation.adjustRotationToConnect(blue, orange);
+		} else {
+			// Камера не крутится: переход «как есть», без вращающего преобразования.
+			blue.setRotation(null);
+			orange.setRotation(null);
+		}
 
 		blue.reloadAndSyncToClientNextTick();
 		orange.reloadAndSyncToClientNextTick();
