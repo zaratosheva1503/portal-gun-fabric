@@ -17,7 +17,8 @@ base {
 }
 
 repositories {
-	maven { url "https://api.modrinth.com/maven" }   // Immersive Portals
+	maven { url "https://api.modrinth.com/maven" }   // Immersive Portals (runtime bundle)
+	maven { url "https://jitpack.io" }                // Immersive Portals API submodules (compile)
 	maven { url "https://maven.fabricmc.net/" }
 	maven { url "https://maven.terraformersmc.com/" }
 }
@@ -28,10 +29,19 @@ dependencies {
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-	// Immersive Portals via Modrinth maven (slug: immersiveportals).
-	// IP 5.x is "one mod" that jar-in-jars q_misc_util + dimlib, so Loom puts
-	// those classes (DQuaternion, McHelper, Portal, ...) on the dev classpath.
+	// Immersive Portals RUNTIME: the published "one mod" bundle. It jar-in-jars
+	// imm_ptl_core + q_misc_util + dimlib, so the game loads them at runtime.
 	modImplementation "maven.modrinth:immersiveportals:${project.immersive_portals_version}"
+
+	// Immersive Portals COMPILE: Loom only exposes Jar-in-Jar'd mods on the
+	// RUNTIME classpath, so Portal / McHelper / DQuaternion are invisible to
+	// the compiler when we depend on the bundle alone. We therefore pull the IP
+	// API submodules from JitPack (built from the iPortalTeam/ImmersivePortalsMod
+	// 1.20.1 sources). They are published via Loom's components.java, i.e. as
+	// intermediary-mapped mod jars, so our Yarn project remaps them correctly.
+	// compileOnly => no runtime conflict with the bundle above.
+	modCompileOnly("com.github.iPortalTeam.ImmersivePortalsMod:imm_ptl_core:${project.imm_ptl_commit}") { transitive = false }
+	modCompileOnly("com.github.iPortalTeam.ImmersivePortalsMod:q_misc_util:${project.imm_ptl_commit}") { transitive = false }
 
 	// --- "Bundled" build only: nest deps inside the output jar ---
 	if (bundleDeps) {
