@@ -9,12 +9,14 @@ import net.minecraft.util.math.Vec3d;
 import qouteall.imm_ptl.core.portal.Portal;
 import portalgun.portal.PortalIndex;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * Жидкость сквозь портал: жидкость, дошедшая до плоскости одного портала,
- * продолжается из парного. Серверный «насос» с лимитом уровня и кулдауном.
+ * продолжается из парного. Проверяем все клетки, которые накрывает портал (1×2).
  */
 public final class PortalFluidManager {
 	private static final int PERIOD = 5;          // насос не каждый тик
@@ -28,33 +30,45 @@ public final class PortalFluidManager {
 		if (world.getTime() % PERIOD != 0) return;
 
 		for (Portal portal : PortalIndex.all()) {
-			// исправлено: было getDestination() — такого метода нет, правильно getDestPos()
 			if (portal.getDestPos() == null) continue;
-
 			Vec3d normal = portal.getNormal();
-			BlockPos entryFront = BlockPos.ofFloored(
-				portal.getOriginPos().add(normal.multiply(0.5)));
 
-			FluidState fs = world.getFluidState(entryFront);
-			if (fs.isEmpty()) continue;
+			for (BlockPos entry : entryCells(portal, normal)) {
+				FluidState fs = world.getFluidState(entry);
+				if (fs.isEmpty()) continue;
 
-			int level = fs.getLevel(); // 8 = source, 1..7 = течёт
-			if (level <= 1) continue;
+				int level = fs.getLevel(); // 8 = источник, 1..7 = течёт
+				if (level <= 1) continue;
 
-			Vec3d exitWorld = portal.transformPoint(Vec3d.ofCenter(entryFront));
-			BlockPos exitFront = BlockPos.ofFloored(exitWorld);
+				Vec3d exitWorld = portal.transformPoint(Vec3d.ofCenter(entry));
+				BlockPos exitPos = BlockPos.ofFloored(exitWorld);
 
-			long now = world.getTime();
-			Long until = exitCooldownUntil.get(exitFront);
-			if (until != null && now < until) continue;
+				long now = world.getTime();
+				Long until = exitCooldownUntil.get(exitPos);
+				if (until != null && now < until) continue;
 
-			FluidState exitFs = world.getFluidState(exitFront);
-			if (!world.getBlockState(exitFront).isAir() && exitFs.isEmpty()) continue;
-			if (!exitFs.isEmpty() && exitFs.getLevel() >= level) continue;
+				FluidState exitFs = world.getFluidState(exitPos);
+				if (!world.getBlockState(exitPos).isAir() && exitFs.isEmpty()) continue;
+				if (!exitFs.isEmpty() && exitFs.getLevel() >= level) continue;
 
-			placeFlowing(world, exitFront, fs, level - 1);
-			exitCooldownUntil.put(exitFront, now + EXIT_COOLDOWN);
+				placeFlowing(world, exitPos, fs, level - 1);
+				exitCooldownUntil.put(exitPos, now + EXIT_COOLDOWN);
+			}
 		}
+	}
+
+	// Все клетки воздуха перед плоскостью портала (1 шир. × 2 выс.).
+	private static List<BlockPos> entryCells(Portal portal, Vec3d normal) {
+		List<BlockPos> cells = new ArrayList<>();
+		Vec3d origin = portal.getOriginPos();
+		double half = portal.height / 2.0;
+		for (double v = -half + 0.5; v < half; v += 1.0) {
+			Vec3d p = origin
+				.add(portal.axisH.multiply(v))
+				.add(normal.multiply(0.5));
+			cells.add(BlockPos.ofFloored(p));
+		}
+		return cells;
 	}
 
 	private static void placeFlowing(ServerWorld world, BlockPos pos, FluidState src, int level) {
