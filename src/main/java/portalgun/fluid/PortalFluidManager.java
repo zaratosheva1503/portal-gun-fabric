@@ -1,5 +1,6 @@
 package portalgun.fluid;
 
+import net.minecraft.entity.Entity;
 import net.minecraft.fluid.FluidState;
 import net.minecraft.fluid.Fluids;
 import net.minecraft.registry.tag.FluidTags;
@@ -7,32 +8,34 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import qouteall.imm_ptl.core.portal.Portal;
-import portalgun.portal.PortalIndex;
+import portalgun.portal.PortalColorAccess;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Жидкость сквозь портал: жидкость, дошедшая до плоскости одного портала,
  * продолжается из парного. Проверяем все клетки, которые накрывает портал (1×2).
+ *
+ * Берём только ЖИВЫЕ порталы прямо из мира (а не кэш PortalIndex, который не
+ * чистился) — удалённые/заменённые порталы больше не качают воду «в пустоту».
+ * Уровень при переносе уменьшаем на 1 — это и анти-зацикливание между парой,
+ * и естественное затухание после исчезновения источника.
  */
 public final class PortalFluidManager {
-	private static final int PERIOD = 5;          // насос не каждый тик
-	private static final int EXIT_COOLDOWN = 10;  // кулдаун на позицию выхода
-
-	private static final Map<BlockPos, Long> exitCooldownUntil = new HashMap<>();
+	private static final int PERIOD = 5; // насос не каждый тик
 
 	private PortalFluidManager() {}
 
 	public static void onWorldTick(ServerWorld world) {
 		if (world.getTime() % PERIOD != 0) return;
 
-		for (Portal portal : PortalIndex.all()) {
+		for (Entity entity : world.iterateEntities()) {
+			if (!(entity instanceof Portal portal)) continue;
+			if (!PortalColorAccess.isPortalGun(portal)) continue;
 			if (portal.getDestPos() == null) continue;
-			Vec3d normal = portal.getNormal();
 
+			Vec3d normal = portal.getNormal();
 			for (BlockPos entry : entryCells(portal, normal)) {
 				FluidState fs = world.getFluidState(entry);
 				if (fs.isEmpty()) continue;
@@ -43,16 +46,13 @@ public final class PortalFluidManager {
 				Vec3d exitWorld = portal.transformPoint(Vec3d.ofCenter(entry));
 				BlockPos exitPos = BlockPos.ofFloored(exitWorld);
 
-				long now = world.getTime();
-				Long until = exitCooldownUntil.get(exitPos);
-				if (until != null && now < until) continue;
-
 				FluidState exitFs = world.getFluidState(exitPos);
+				// твёрдый блок на выходе — пропускаем
 				if (!world.getBlockState(exitPos).isAir() && exitFs.isEmpty()) continue;
+				// на выходе уже не меньше — не перетираем (анти-зацикливание пары)
 				if (!exitFs.isEmpty() && exitFs.getLevel() >= level) continue;
 
 				placeFlowing(world, exitPos, fs, level - 1);
-				exitCooldownUntil.put(exitPos, now + EXIT_COOLDOWN);
 			}
 		}
 	}
@@ -74,7 +74,7 @@ public final class PortalFluidManager {
 	private static void placeFlowing(ServerWorld world, BlockPos pos, FluidState src, int level) {
 		boolean lava = src.isIn(FluidTags.LAVA);
 		FluidState flowing = (lava ? Fluids.FLOWING_LAVA : Fluids.FLOWING_WATER)
-				.getFlowing(Math.max(1, level), false);
+				.getFlowing(Math.min(8, Math.max(1, level)), false);
 		world.setBlockState(pos, flowing.getBlockState(), 3);
 		world.scheduleFluidTick(pos, flowing.getFluid(),
 				flowing.getFluid().getTickRate(world));

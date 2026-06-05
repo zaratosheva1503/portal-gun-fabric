@@ -8,11 +8,12 @@ import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.client.world.ClientWorld;
+import net.minecraft.entity.Entity;
 import org.lwjgl.glfw.GLFW;
 import qouteall.imm_ptl.core.portal.Portal;
 import portalgun.PortalGunMod;
 import portalgun.portal.PortalColorAccess;
-import portalgun.portal.PortalIndex;
 
 public class PortalGunClient implements ClientModInitializer {
 	private static KeyBinding swapColorsKey;
@@ -34,10 +35,16 @@ public class PortalGunClient implements ClientModInitializer {
 			}
 		});
 
+		// Обводку рисуем по ЖИВЫМ порталам клиентского мира. Раньше брали кэш
+		// PortalIndex, который не чистился при удалении портала — оставались
+		// «призрачные» кольца. Теперь кольцо исчезает вместе с порталом.
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(ctx -> {
-			for (Portal portal : PortalIndex.all()) {
-				if (!PortalColorAccess.isPortalGun(portal)) continue;
-				PortalFrameRenderer.drawOutline(ctx, portal, PortalColorAccess.getRgb(portal));
+			ClientWorld world = ctx.world();
+			if (world == null) return;
+			for (Entity entity : world.getEntities()) {
+				if (entity instanceof Portal portal && PortalColorAccess.isPortalGun(portal)) {
+					PortalFrameRenderer.drawOutline(ctx, portal, PortalColorAccess.getRgb(portal));
+				}
 			}
 		});
 	}

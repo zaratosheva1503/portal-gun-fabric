@@ -8,9 +8,8 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.Vec3d;
 import qouteall.imm_ptl.core.McHelper;
-import qouteall.imm_ptl.core.portal.GeometryPortalShape;
 import qouteall.imm_ptl.core.portal.Portal;
-import qouteall.q_misc_util.my_util.DQuaternion;
+import qouteall.imm_ptl.core.portal.PortalManipulation;
 import portalgun.PortalColor;
 
 import java.util.EnumMap;
@@ -71,7 +70,8 @@ public class PortalSpawnManager {
 		portal.setOrientationAndSize(axisW.normalize(), axisH.normalize(), PORTAL_W, PORTAL_H);
 		portal.setDestinationDimension(world.getRegistryKey());
 		portal.setDestination(origin); // временно, до линковки пары
-		portal.specialShape = buildEllipseShape(); // овальная дыра как в Portal 2
+		// Овальная дыра как в Portal 2 — штатным хелпером IP (корректно и для рендера, и для коллизий).
+		PortalManipulation.makePortalRound(portal, ELLIPSE_SEGMENTS);
 		PortalColorAccess.set(portal, channel, rgb);
 
 		// удалить старый портал того же слота у этого игрока
@@ -84,25 +84,8 @@ public class PortalSpawnManager {
 		McHelper.spawnServerEntity(portal);
 		portal.reloadAndSyncToClientNextTick(); // пересчёт bounding box / коллизии + формы
 		remember(player, channel, portal.getUuid());
-		PortalIndex.rebuild(world);
 
 		linkPair(world, player);
-	}
-
-	// ---- эллипс в нормализованных координатах [-1,1] (веер треугольников) ----
-	private static GeometryPortalShape buildEllipseShape() {
-		GeometryPortalShape shape = new GeometryPortalShape();
-		for (int i = 0; i < ELLIPSE_SEGMENTS; i++) {
-			double a1 = 2.0 * Math.PI * i / ELLIPSE_SEGMENTS;
-			double a2 = 2.0 * Math.PI * (i + 1) / ELLIPSE_SEGMENTS;
-			shape.triangles.add(new GeometryPortalShape.TriangleInPlane(
-				0.0, 0.0,
-				Math.cos(a1), Math.sin(a1),
-				Math.cos(a2), Math.sin(a2)
-			));
-		}
-		shape.normalized = true; // уже в нормализованных координатах
-		return shape;
 	}
 
 	// ---- линковка пары ----
@@ -115,24 +98,19 @@ public class PortalSpawnManager {
 		Entity oe = world.getEntity(orangeId);
 		if (!(be instanceof Portal blue) || !(oe instanceof Portal orange)) return;
 
-		connect(blue, orange);
-		connect(orange, blue);
-	}
+		// Двусторонняя связь по позиции/измерению.
+		blue.setDestinationDimension(orange.getOriginDim());
+		blue.setDestination(orange.getOriginPos());
+		orange.setDestinationDimension(blue.getOriginDim());
+		orange.setDestination(blue.getOriginPos());
 
-	private static void connect(Portal src, Portal dst) {
-		src.setDestinationDimension(dst.getOriginDim());
-		src.setDestination(dst.getOriginPos());
-		src.setRotation(computeRotation(src, dst));
-		src.reloadAndSyncToClientNextTick();
-	}
+		// Штатный расчёт разворота IP (с флипом вокруг axisH): выставляет rotation
+		// обоим порталам так, что вход смотрит В портал, а выход — ИЗ него.
+		// Благодаря этому при любом угле захода (в том числе боком) выкидывает
+		// строго на правильный выход, а не в стену/в другую сторону.
+		PortalManipulation.adjustRotationToConnect(blue, orange);
 
-	// ---- расчёт rotation через кватернионы (вид не переворачивается) ----
-	private static DQuaternion computeRotation(Portal src, Portal dst) {
-		Vec3d sW = src.axisW, sH = src.axisH, sN = src.getNormal();
-		Vec3d dW = dst.axisW, dH = dst.axisH, dN = dst.getNormal().multiply(-1);
-
-		DQuaternion qSrc = DQuaternion.matrixToQuaternion(sW, sH, sN);
-		DQuaternion qDst = DQuaternion.matrixToQuaternion(dW, dH, dN);
-		return qDst.hamiltonProduct(qSrc.getConjugated());
+		blue.reloadAndSyncToClientNextTick();
+		orange.reloadAndSyncToClientNextTick();
 	}
 }
