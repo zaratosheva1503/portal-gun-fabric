@@ -11,10 +11,13 @@ import org.joml.Matrix4f;
 import qouteall.imm_ptl.core.portal.Portal;
 
 /**
- * Декоративная цветная обводка портала (4 ребра прямоугольника).
- * Рисуется поверх штатного рендера Immersive Portals.
+ * Цветная овальная обводка портала в стиле Portal 2 (эллипс, вписанный в портал 1×2).
+ * Рисуется поверх штатного (прямоугольного) рендера сквозной поверхности Immersive Portals.
  */
 public final class PortalFrameRenderer {
+	private static final int SEGMENTS = 48;       // гладкость овала
+	private static final double RING_SCALE = 1.0; // 1.0 = овал касается краёв портала
+
 	private PortalFrameRenderer() {}
 
 	public static void drawOutline(WorldRenderContext ctx, Portal portal, int rgb) {
@@ -25,15 +28,9 @@ public final class PortalFrameRenderer {
 		Vec3d camPos = cam.getPos();
 
 		Vec3d o = portal.getOriginPos();
-		Vec3d w = portal.axisW.multiply(portal.width / 2.0);
-		Vec3d h = portal.axisH.multiply(portal.height / 2.0);
-
-		Vec3d[] c = new Vec3d[] {
-			o.add(w).add(h),
-			o.subtract(w).add(h),
-			o.subtract(w).subtract(h),
-			o.add(w).subtract(h)
-		};
+		// полуоси эллипса вдоль ширины и высоты портала
+		Vec3d w = portal.axisW.multiply(portal.width / 2.0 * RING_SCALE);
+		Vec3d h = portal.axisH.multiply(portal.height / 2.0 * RING_SCALE);
 
 		MatrixStack ms = ctx.matrixStack();
 		ms.push();
@@ -45,17 +42,22 @@ public final class PortalFrameRenderer {
 		float g = ((rgb >> 8) & 0xFF) / 255f;
 		float b = (rgb & 0xFF) / 255f;
 
-		for (int i = 0; i < 4; i++) {
-			Vec3d a = c[i];
-			Vec3d d = c[(i + 1) % 4];
-			Vec3d dir = d.subtract(a).normalize();
-			vc.vertex(m, (float) a.x, (float) a.y, (float) a.z)
+		Vec3d prev = ellipsePoint(o, w, h, 0);
+		for (int i = 1; i <= SEGMENTS; i++) {
+			Vec3d cur = ellipsePoint(o, w, h, 2.0 * Math.PI * i / SEGMENTS);
+			Vec3d dir = cur.subtract(prev).normalize();
+			vc.vertex(m, (float) prev.x, (float) prev.y, (float) prev.z)
 				.color(r, g, b, 1f)
 				.normal((float) dir.x, (float) dir.y, (float) dir.z).next();
-			vc.vertex(m, (float) d.x, (float) d.y, (float) d.z)
+			vc.vertex(m, (float) cur.x, (float) cur.y, (float) cur.z)
 				.color(r, g, b, 1f)
 				.normal((float) dir.x, (float) dir.y, (float) dir.z).next();
+			prev = cur;
 		}
 		ms.pop();
+	}
+
+	private static Vec3d ellipsePoint(Vec3d o, Vec3d w, Vec3d h, double angle) {
+		return o.add(w.multiply(Math.cos(angle))).add(h.multiply(Math.sin(angle)));
 	}
 }
