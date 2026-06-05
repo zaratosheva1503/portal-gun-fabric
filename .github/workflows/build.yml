@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  IMMERSIVE_PORTALS_VERSION: "5.2.0"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,6 +29,26 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.6'
+
+      # ---------- Extract Immersive Portals API jars for COMPILE ----------
+      # IP ships as a single "bundle" mod that jar-in-jars imm_ptl_core +
+      # q_misc_util. Loom puts JiJ'd mods on the RUNTIME classpath only, so the
+      # compiler can't see Portal/McHelper/DQuaternion. We pull the bundle from
+      # the Modrinth maven and unzip the already-remapped nested API jars into
+      # libs/ip, which build.gradle adds via modCompileOnly. No JitPack, no
+      # building IP from source -> deterministic and fast.
+      - name: Extract Immersive Portals API jars (compile classpath)
+        run: |
+          set -euxo pipefail
+          mkdir -p libs/ip
+          curl -sSL --retry 3 --retry-delay 5 \
+            -o ip-bundle.jar \
+            "https://api.modrinth.com/maven/maven/modrinth/immersiveportals/${IMMERSIVE_PORTALS_VERSION}/immersiveportals-${IMMERSIVE_PORTALS_VERSION}.jar"
+          unzip -o ip-bundle.jar 'META-INF/jars/*.jar' -d ip-unpack
+          cp ip-unpack/META-INF/jars/imm_ptl_core*.jar libs/ip/
+          cp ip-unpack/META-INF/jars/q_misc_util*.jar  libs/ip/
+          echo "Extracted API jars:"
+          ls -la libs/ip
 
       # ---------- Version 1: SLIM (needs IP + Fabric API installed) ----------
       - name: Compile + build SLIM jar

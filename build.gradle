@@ -18,7 +18,6 @@ base {
 
 repositories {
 	maven { url "https://api.modrinth.com/maven" }   // Immersive Portals (runtime bundle)
-	maven { url "https://jitpack.io" }                // Immersive Portals API submodules (compile)
 	maven { url "https://maven.fabricmc.net/" }
 	maven { url "https://maven.terraformersmc.com/" }
 }
@@ -33,15 +32,15 @@ dependencies {
 	// imm_ptl_core + q_misc_util + dimlib, so the game loads them at runtime.
 	modImplementation "maven.modrinth:immersiveportals:${project.immersive_portals_version}"
 
-	// Immersive Portals COMPILE: Loom only exposes Jar-in-Jar'd mods on the
-	// RUNTIME classpath, so Portal / McHelper / DQuaternion are invisible to
-	// the compiler when we depend on the bundle alone. We therefore pull the IP
-	// API submodules from JitPack (built from the iPortalTeam/ImmersivePortalsMod
-	// 1.20.1 sources). They are published via Loom's components.java, i.e. as
-	// intermediary-mapped mod jars, so our Yarn project remaps them correctly.
-	// compileOnly => no runtime conflict with the bundle above.
-	modCompileOnly("com.github.iPortalTeam.ImmersivePortalsMod:imm_ptl_core:${project.imm_ptl_commit}") { transitive = false }
-	modCompileOnly("com.github.iPortalTeam.ImmersivePortalsMod:q_misc_util:${project.imm_ptl_commit}") { transitive = false }
+	// Immersive Portals COMPILE: Loom exposes Jar-in-Jar'd mods only on the
+	// RUNTIME classpath, so Portal / McHelper / DQuaternion are invisible to the
+	// compiler when we depend on the bundle alone. The CI workflow extracts the
+	// already-remapped nested API jars (imm_ptl_core / q_misc_util) from the
+	// bundle above into libs/ip, and we add them to the compile classpath here.
+	// They are intermediary-mapped Fabric mod jars, so Loom remaps them to Yarn.
+	// compileOnly => no runtime duplication with the bundle above.
+	// (See README "Building" / the extract step in .github/workflows/build.yml.)
+	modCompileOnly fileTree(dir: "libs/ip", include: ["imm_ptl_core-*.jar", "q_misc_util-*.jar"])
 
 	// --- "Bundled" build only: nest deps inside the output jar ---
 	if (bundleDeps) {
