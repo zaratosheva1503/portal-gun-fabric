@@ -1,0 +1,22 @@
+{
+	"schemaVersion": 1,
+	"id": "portalgun",
+	"version": "${version}",
+	"name": "Portal Gun",
+	"description": "Portal 2-style portal gun on top of Immersive Portals.",
+	"authors": ["zaratosheva1503"],
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": ["portalgun.PortalGunMod"],
+		"client": ["portalgun.client.PortalGunClient"]
+	},
+	"mixins": ["portalgun.mixins.json"],
+	"depends": {
+		"fabricloader": ">=0.15",
+		"minecraft": "1.20.1",
+		"fabric-api": "*",
+		"imm_ptl_core": "*",
+		"q_misc_util": "*"
+	}
+}
