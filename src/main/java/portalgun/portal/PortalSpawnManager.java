@@ -12,6 +12,7 @@ import qouteall.imm_ptl.core.portal.Portal;
 import qouteall.imm_ptl.core.portal.PortalManipulation;
 import portalgun.PortalColor;
 
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
@@ -47,9 +48,11 @@ public class PortalSpawnManager {
 		Vec3d axisH;
 
 		if (face.getAxis().isVertical()) {
-			// --- ПОЛ / ПОТОЛОК: портал лежит горизонтально ---
-			Vec3d look = Vec3d.fromPolar(0.0F, player.getYaw()).normalize();
-			axisH = look;                                    // длинная ось (2) вдоль взгляда
+			// --- ПОЛ / ПОТОЛОК: портал лежит горизонтально, СТРОГО по осям мира ---
+			// §12: берём кардинальное направление взгляда (С/Ю/З/В), а не сырой yaw,
+			// чтобы портал всегда вставал ровно, без косых углов.
+			Direction horiz = player.getHorizontalFacing();
+			axisH = Vec3d.of(horiz.getVector());             // длинная ось (2) вдоль стороны игрока
 			axisW = axisH.crossProduct(normal).normalize();  // ширина (1) поперёк
 			double cy = (face == Direction.UP)
 				? blockPos.getY() + 1.0 + SURFACE_OFFSET
@@ -72,6 +75,10 @@ public class PortalSpawnManager {
 		portal.setDestination(origin); // временно, до линковки пары
 		// Овальная дыра как в Portal 2 — штатным хелпером IP (корректно и для рендера, и для коллизий).
 		PortalManipulation.makePortalRound(portal, ELLIPSE_SEGMENTS);
+		// §7/§14/§16: пусть IP сам «прорезает» твёрдую поверхность под/за порталом —
+		// тогда можно проваливаться сквозь пол/потолок, проходить в прыжке и пропускать снаряды.
+		portal.hasCrossPortalCollision = true;
+		portal.teleportable = true;
 		PortalColorAccess.set(portal, channel, rgb);
 
 		// удалить старый портал того же слота у этого игрока
@@ -86,6 +93,18 @@ public class PortalSpawnManager {
 		remember(player, channel, portal.getUuid());
 
 		linkPair(world, player);
+	}
+
+	// §11: ЛКМ ломает порталы — убираем оба портала этого игрока.
+	public static void removeOwnedPortals(ServerWorld world, ServerPlayerEntity player) {
+		EnumMap<PortalColor, UUID> map = OWNED.get(player.getUuid());
+		if (map == null) return;
+		for (UUID id : new ArrayList<>(map.values())) {
+			if (id == null) continue;
+			Entity e = world.getEntity(id);
+			if (e instanceof Portal p) p.remove(Entity.RemovalReason.DISCARDED);
+		}
+		map.clear();
 	}
 
 	// ---- линковка пары ----
@@ -104,10 +123,7 @@ public class PortalSpawnManager {
 		orange.setDestinationDimension(blue.getOriginDim());
 		orange.setDestination(blue.getOriginPos());
 
-		// Штатный расчёт разворота IP (с флипом вокруг axisH): выставляет rotation
-		// обоим порталам так, что вход смотрит В портал, а выход — ИЗ него.
-		// Благодаря этому при любом угле захода (в том числе боком) выкидывает
-		// строго на правильный выход, а не в стену/в другую сторону.
+		// Штатный расчёт разворота IP (с флипом вокруг axisH).
 		PortalManipulation.adjustRotationToConnect(blue, orange);
 
 		blue.reloadAndSyncToClientNextTick();

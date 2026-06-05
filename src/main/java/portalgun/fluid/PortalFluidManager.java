@@ -15,15 +15,15 @@ import java.util.List;
 
 /**
  * Жидкость сквозь портал: жидкость, дошедшая до плоскости одного портала,
- * продолжается из парного. Проверяем все клетки, которые накрывает портал (1×2).
+ * продолжается из парного.
  *
- * Берём только ЖИВЫЕ порталы прямо из мира (а не кэш PortalIndex, который не
- * чистился) — удалённые/заменённые порталы больше не качают воду «в пустоту».
- * Уровень при переносе уменьшаем на 1 — это и анти-зацикливание между парой,
- * и естественное затухание после исчезновения источника.
+ * §10: дозируем перенос — раньше (раунд 1) лилось полным потоком. Теперь
+ * увеличен период и ограничен уровень выходной жидкости, чтобы переносилось
+ * «по чуть-чуть», без полного перелива и без луж.
  */
 public final class PortalFluidManager {
-	private static final int PERIOD = 5; // насос не каждый тик
+	private static final int PERIOD = 10;          // реже, чтобы поток был слабее
+	private static final int MAX_EXIT_LEVEL = 2;   // максимум — тонкая струйка
 
 	private PortalFluidManager() {}
 
@@ -43,6 +43,10 @@ public final class PortalFluidManager {
 				int level = fs.getLevel(); // 8 = источник, 1..7 = течёт
 				if (level <= 1) continue;
 
+				// дозируем: переносим мало, чтобы текло «по чуть-чуть»
+				int outLevel = Math.min(level - 1, MAX_EXIT_LEVEL);
+				if (outLevel < 1) continue;
+
 				Vec3d exitWorld = portal.transformPoint(Vec3d.ofCenter(entry));
 				BlockPos exitPos = BlockPos.ofFloored(exitWorld);
 
@@ -50,9 +54,9 @@ public final class PortalFluidManager {
 				// твёрдый блок на выходе — пропускаем
 				if (!world.getBlockState(exitPos).isAir() && exitFs.isEmpty()) continue;
 				// на выходе уже не меньше — не перетираем (анти-зацикливание пары)
-				if (!exitFs.isEmpty() && exitFs.getLevel() >= level) continue;
+				if (!exitFs.isEmpty() && exitFs.getLevel() >= outLevel) continue;
 
-				placeFlowing(world, exitPos, fs, level - 1);
+				placeFlowing(world, exitPos, fs, outLevel);
 			}
 		}
 	}

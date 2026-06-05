@@ -23,6 +23,7 @@ public class PortalGunItem extends Item {
 	private static final double MAX_DISTANCE = 96.0;
 	private static final String KEY_PRIMARY = "PrimaryColor";
 	private static final String KEY_SECONDARY = "SecondaryColor";
+	private static final String KEY_NEXT_ORANGE = "NextOrange"; // §11: какой портал ставим следующим выстрелом ПКМ
 
 	public PortalGunItem(Settings settings) { super(settings); }
 
@@ -43,6 +44,15 @@ public class PortalGunItem extends Item {
 		setColor(stack, false, p);
 	}
 
+	// §11: чередование цвета при постановке через ПКМ.
+	public static boolean isNextOrange(ItemStack stack) {
+		NbtCompound nbt = stack.getNbt();
+		return nbt != null && nbt.getBoolean(KEY_NEXT_ORANGE);
+	}
+	public static void setNextOrange(ItemStack stack, boolean v) {
+		stack.getOrCreateNbt().putBoolean(KEY_NEXT_ORANGE, v);
+	}
+
 	private static int rgbOf(DyeColor color) {
 		float[] c = color.getColorComponents();
 		int r = (int) (c[0] * 255.0F);
@@ -51,7 +61,8 @@ public class PortalGunItem extends Item {
 		return (r << 16) | (g << 8) | b;
 	}
 
-	// ПКМ -> оранжевый слот (или перекрас слота 2, если в левой руке краситель)
+	// §11 ПКМ -> ставит порталы ПООЧЕРЁДНО (синий, затем оранжевый, по кругу).
+	// Краситель в левой руке вместо постановки красит цвет, который пойдёт следующим.
 	@Override
 	public TypedActionResult<ItemStack> use(World world, PlayerEntity player, Hand hand) {
 		ItemStack stack = player.getStackInHand(hand);
@@ -60,26 +71,33 @@ public class PortalGunItem extends Item {
 		if (!world.isClient) {
 			ServerPlayerEntity sp = (ServerPlayerEntity) player;
 			ItemStack off = player.getOffHandStack();
+			boolean nextOrange = isNextOrange(stack);
 			if (off.getItem() instanceof DyeItem dye) {
-				setColor(stack, false, rgbOf(dye.getColor()));
-				sp.sendMessage(Text.literal("Portal Gun: цвет слота 2 изменён"), true);
+				// !nextOrange == слот primary (синий)
+				setColor(stack, !nextOrange, rgbOf(dye.getColor()));
+				sp.sendMessage(Text.literal("Portal Gun: цвет изменён"), true);
 			} else {
-				firePortal((ServerWorld) world, sp, PortalColor.ORANGE, getColor(stack, false));
+				PortalColor channel = nextOrange ? PortalColor.ORANGE : PortalColor.BLUE;
+				int rgb = getColor(stack, !nextOrange);
+				firePortal(sp.getServerWorld(), sp, channel, rgb);
+				setNextOrange(stack, !nextOrange); // следующий выстрел — другой цвет
 			}
 		}
 		return TypedActionResult.success(stack);
 	}
 
-	// ЛКМ -> синий слот (из AttackBlockCallback); краситель в левой руке красит слот 1
+	// §11 ЛКМ -> ломает порталы (из AttackBlockCallback). Краситель в левой руке красит текущий слот.
 	public static void onLeftClick(ServerPlayerEntity player) {
 		ItemStack stack = player.getMainHandStack();
 		ItemStack off = player.getOffHandStack();
 		if (off.getItem() instanceof DyeItem dye) {
-			setColor(stack, true, rgbOf(dye.getColor()));
-			player.sendMessage(Text.literal("Portal Gun: цвет слота 1 изменён"), true);
+			boolean nextOrange = isNextOrange(stack);
+			setColor(stack, !nextOrange, rgbOf(dye.getColor()));
+			player.sendMessage(Text.literal("Portal Gun: цвет изменён"), true);
 			return;
 		}
-		firePortal(player.getServerWorld(), player, PortalColor.BLUE, getColor(stack, true));
+		PortalSpawnManager.removeOwnedPortals(player.getServerWorld(), player);
+		player.sendMessage(Text.literal("Portal Gun: порталы убраны"), true);
 	}
 
 	private static void firePortal(ServerWorld world, ServerPlayerEntity player,

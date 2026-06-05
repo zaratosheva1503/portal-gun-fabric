@@ -24,6 +24,9 @@ public class PortalGunMod implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
+		// §13: загрузить/создать конфиг (config/portalgun.json).
+		PortalGunConfig.get();
+
 		PORTAL_GUN = Registry.register(
 			Registries.ITEM,
 			new Identifier(MOD_ID, "portal_gun"),
@@ -34,7 +37,7 @@ public class PortalGunMod implements ModInitializer {
 		ItemGroupEvents.modifyEntriesEvent(ItemGroups.TOOLS)
 			.register(entries -> entries.add(PORTAL_GUN));
 
-		// ЛКМ -> синий портал (или перекрас слота 1, если в левой руке краситель).
+		// §11 ЛКМ -> сломать порталы (или перекрас, если в левой руке краситель).
 		AttackBlockCallback.EVENT.register((player, world, hand, pos, dir) -> {
 			if (!world.isClient
 					&& player.getMainHandStack().getItem() instanceof PortalGunItem) {
