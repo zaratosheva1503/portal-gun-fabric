@@ -16,6 +16,7 @@ import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
 import portalgun.fluid.PortalFluidManager;
 import portalgun.item.PortalGunItem;
+import portalgun.portal.PortalBackWall;
 
 public class PortalGunMod implements ModInitializer {
 	public static final String MOD_ID = "portalgun";
@@ -59,5 +60,8 @@ public class PortalGunMod implements ModInitializer {
 
 		// Серверный тик: перекачка жидкости между порталами.
 		ServerTickEvents.END_WORLD_TICK.register(PortalFluidManager::onWorldTick);
+
+		// §9 Серверный тик: непроходимый тыл портала (барьер «зад→перёд»).
+		ServerTickEvents.END_WORLD_TICK.register(PortalBackWall::onWorldTick);
 	}
 }
