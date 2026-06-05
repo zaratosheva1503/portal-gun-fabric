@@ -6,14 +6,20 @@ plugins {
 version = project.mod_version
 group = project.maven_group
 
+// When built with -PbundleDeps=true, dependencies are nested inside the jar
+// (Jar-in-Jar) so the user does NOT need to install them separately.
+def bundleDeps = project.hasProperty("bundleDeps")
+
 base {
-	archivesName = project.archives_base_name
+	archivesName = bundleDeps
+		? "${project.archives_base_name}-bundled"
+		: project.archives_base_name
 }
 
 repositories {
 	maven { url "https://api.modrinth.com/maven" }   // Immersive Portals
 	maven { url "https://maven.fabricmc.net/" }
-	maven { url "https://maven.terraformersmc.com/" } // ModMenu (optional)
+	maven { url "https://maven.terraformersmc.com/" }
 }
 
 dependencies {
@@ -22,11 +28,16 @@ dependencies {
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-	// Immersive Portals for 1.20.1 Fabric.
-	// IMPORTANT: replace the version below with a real tag from
-	// https://modrinth.com/mod/immersive-portals/versions (filter: 1.20.1, Fabric)
-	// -> open a version -> copy the Gradle (Modrinth Maven) coordinate.
-	modImplementation "maven.modrinth:immersive-portals:v5.0.1-mc1.20.1-fabric"
+	// Immersive Portals via Modrinth maven (slug: immersiveportals).
+	// IP 5.x is "one mod" that jar-in-jars q_misc_util + dimlib, so Loom puts
+	// those classes (DQuaternion, McHelper, Portal, ...) on the dev classpath.
+	modImplementation "maven.modrinth:immersiveportals:${project.immersive_portals_version}"
+
+	// --- "Bundled" build only: nest deps inside the output jar ---
+	if (bundleDeps) {
+		include "maven.modrinth:immersiveportals:${project.immersive_portals_version}"
+		include "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+	}
 }
 
 processResources {

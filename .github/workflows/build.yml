@@ -1,0 +1,50 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.6'
+
+      # ---------- Version 1: SLIM (needs IP + Fabric API installed) ----------
+      - name: Compile + build SLIM jar
+        run: gradle clean build --stacktrace
+
+      - name: Upload SLIM jar (requires mods)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portalgun-slim
+          path: build/libs/*.jar
+
+      # ---------- Version 2: BUNDLED (deps nested inside the jar) ----------
+      - name: Compile + build BUNDLED jar
+        run: gradle clean build -PbundleDeps=true --stacktrace
+
+      - name: Upload BUNDLED jar (deps included)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portalgun-bundled
+          path: build/libs/*.jar

@@ -94,8 +94,10 @@ public class PortalSpawnManager {
 	private static void connect(Portal src, Portal dst) {
 		src.setDestinationDimension(dst.getOriginDim());
 		src.setDestination(dst.getOriginPos());
-		src.setRotationTransformationD(computeRotation(src, dst));
-		src.reloadAndSyncToClient();
+		// исправлено: метод поворота называется setRotation(DQuaternion)
+		src.setRotation(computeRotation(src, dst));
+		// исправлено: синхронизация — reloadAndSyncToClientNextTick()
+		src.reloadAndSyncToClientNextTick();
 	}
 
 	// ---- (в) расчёт rotation через кватернионы ----
