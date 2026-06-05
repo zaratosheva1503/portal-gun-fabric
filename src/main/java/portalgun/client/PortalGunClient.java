@@ -35,15 +35,16 @@ public class PortalGunClient implements ClientModInitializer {
 			}
 		});
 
-		// Обводку рисуем по ЖИВЫМ порталам клиентского мира. Раньше брали кэш
-		// PortalIndex, который не чистился при удалении портала — оставались
-		// «призрачные» кольца. Теперь кольцо исчезает вместе с порталом.
+		// Обводку и заливку тыла рисуем по ЖИВЫМ порталам клиентского мира.
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(ctx -> {
 			ClientWorld world = ctx.world();
 			if (world == null) return;
 			for (Entity entity : world.getEntities()) {
 				if (entity instanceof Portal portal && PortalColorAccess.isPortalGun(portal)) {
-					PortalFrameRenderer.drawOutline(ctx, portal, PortalColorAccess.getRgb(portal));
+					int rgb = PortalColorAccess.getRgb(portal);
+					// §9: сначала сплошная заливка тыла, сверху — цветная обводка.
+					PortalFrameRenderer.drawBackFill(ctx, portal, rgb);
+					PortalFrameRenderer.drawOutline(ctx, portal, rgb);
 				}
 			}
 		});
