@@ -19,6 +19,7 @@ import portalgun.item.PortalGunItem;
 
 public class PortalGunMod implements ModInitializer {
 	public static final String MOD_ID = "portalgun";
+	// Идентификатор пакета бинда R (перебор цвета пушки).
 	public static final Identifier SWAP_COLORS = new Identifier(MOD_ID, "swap_colors");
 	public static PortalGunItem PORTAL_GUN;
 
@@ -47,13 +48,14 @@ public class PortalGunMod implements ModInitializer {
 			return ActionResult.PASS;
 		});
 
-		// Бинд из настроек: поменять местами цвета слотов.
+		// Бинд R: перебрать цвет пушки по палитре. Состояние хранится в NBT предмета,
+		// поэтому в мультиплеере у каждого игрока свой цвет, ничего не ломается.
 		ServerPlayNetworking.registerGlobalReceiver(SWAP_COLORS,
 			(server, player, netHandler, buf, sender) -> server.execute(() -> {
 				ItemStack stack = player.getMainHandStack();
 				if (stack.getItem() instanceof PortalGunItem) {
-					PortalGunItem.swapColors(stack);
-					player.sendMessage(Text.literal("Portal Gun: цвета слотов поменэны местами"), true);
+					int rgb = PortalGunItem.cycleColor(stack);
+					player.sendMessage(Text.literal("Portal Gun: цвет — " + PortalColor.nameOf(rgb)), true);
 				}
 			}));
 

@@ -4,17 +4,17 @@ import qouteall.imm_ptl.core.portal.Portal;
 import portalgun.PortalColor;
 
 /**
- * Слот и цвет портала хранятся в публичном поле portalTag (String) сущности Portal,
+ * Цвет портала хранится в публичном поле portalTag (String) сущности Portal,
  * которое Immersive Portals сохраняет в NBT и синхронизирует на клиент.
- * Формат: "portalgun:<CHANNEL>:<rgbInt>", напр. "portalgun:BLUE:4172277".
+ * Формат: "portalgun:gun:<rgbInt>", напр. "portalgun:gun:4172277".
  */
 public final class PortalColorAccess {
 	private static final String PREFIX = "portalgun:";
 
 	private PortalColorAccess() {}
 
-	public static void set(Portal portal, PortalColor channel, int rgb) {
-		portal.portalTag = PREFIX + channel.name() + ":" + rgb;
+	public static void set(Portal portal, int rgb) {
+		portal.portalTag = PREFIX + "gun:" + rgb;
 	}
 
 	public static boolean isPortalGun(Portal portal) {

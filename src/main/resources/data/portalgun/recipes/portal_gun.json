@@ -1,0 +1,16 @@
+{
+	"type": "minecraft:crafting_shaped",
+	"pattern": [
+		"III",
+		"IEI",
+		"IRI"
+	],
+	"key": {
+		"I": { "item": "minecraft:iron_ingot" },
+		"E": { "item": "minecraft:ender_eye" },
+		"R": { "item": "minecraft:redstone" }
+	},
+	"result": {
+		"item": "portalgun:portal_gun"
+	}
+}
