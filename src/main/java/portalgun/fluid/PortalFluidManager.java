@@ -1,5 +1,6 @@
 package portalgun.fluid;
 
+import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.FluidBlock;
 import net.minecraft.entity.Entity;
@@ -13,7 +14,6 @@ import portalgun.portal.PortalColorAccess;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -21,24 +21,31 @@ import java.util.Set;
 /**
  * Fluids through portals (section 10).
  *
- * Strategy: if there is a STILL fluid source at a portal's entrance, place a stable
- * SOURCE block in the AIR block in front of the partner portal. A source persists,
- * is clearly visible and spreads like real water. We track the positions we placed so
- * we can (a) remove them when the entrance source is gone, and (b) ignore our own placed
- * sources during detection so there is no feedback loop.
+ * If there is a STILL fluid source at a portal's entrance, we keep a stable SOURCE block
+ * in the air block in front of the partner portal.
+ *
+ * Anti-flicker design:
+ *  - Idempotent placement: if the exit block already holds our source of the right type,
+ *    we do NOT call setBlockState again (no visual re-trigger every cycle).
+ *  - Grace period: an exit source is removed only after its entrance has been empty for
+ *    GRACE_TICKS in a row, so a single missed detection on one tick can't blink the water.
+ *  - We ignore our own placed exits during detection, so there is no feedback loop.
  */
 public final class PortalFluidManager {
 	private static final int PERIOD = 5;
+	/** How long (ticks) an exit keeps its fluid after the entrance stops feeding it. */
+	private static final long GRACE_TICKS = 30;
 
-	// Source blocks WE placed at portal exits, per world.
-	private static final Map<ServerWorld, Set<BlockPos>> PLACED = new HashMap<>();
+	// exit pos -> last game time it was fed by an entrance source, per world.
+	private static final Map<ServerWorld, Map<BlockPos, Long>> FED = new HashMap<>();
 
 	private PortalFluidManager() {}
 
 	public static void onWorldTick(ServerWorld world) {
 		if (world.getTime() % PERIOD != 0) return;
-
-		Set<BlockPos> placed = PLACED.computeIfAbsent(world, w -> new HashSet<>());
+		long now = world.getTime();
+		Map<BlockPos, Long> fed = FED.computeIfAbsent(world, w -> new HashMap<>());
+		Set<BlockPos> placed = fed.keySet();
 
 		List<Portal> portals = new ArrayList<>();
 		for (Entity e : world.iterateEntities()) {
@@ -46,8 +53,6 @@ public final class PortalFluidManager {
 				portals.add(p);
 			}
 		}
-
-		Set<BlockPos> activeNow = new HashSet<>();
 
 		for (Portal portal : portals) {
 			boolean lava = hasSourceAtEntry(world, portal, placed, true);
@@ -60,23 +65,28 @@ public final class PortalFluidManager {
 			BlockPos exit = exitBlock(partner);
 			if (exit == null || !canPlace(world, exit, placed)) continue;
 
-			world.setBlockState(exit, (lava ? Blocks.LAVA : Blocks.WATER).getDefaultState(), 3);
-			placed.add(exit);
-			activeNow.add(exit);
+			// Idempotent: only set the block if it is NOT already our still source of this type.
+			FluidState fs = world.getFluidState(exit);
+			boolean alreadyOk = fs.isStill() && fs.isIn(lava ? FluidTags.LAVA : FluidTags.WATER);
+			if (!alreadyOk) {
+				world.setBlockState(exit, (lava ? Blocks.LAVA : Blocks.WATER).getDefaultState(), 3);
+			}
+			fed.put(exit, now); // mark as fed this tick
 		}
 
-		// Cleanup: sources we placed but that are no longer fed by an entrance -> revert to air.
-		if (!placed.isEmpty()) {
+		// Cleanup with grace: remove an exit only if it has not been fed for GRACE_TICKS.
+		if (!fed.isEmpty()) {
 			List<BlockPos> toRemove = new ArrayList<>();
-			for (BlockPos pos : placed) {
-				if (activeNow.contains(pos)) continue;
+			for (Map.Entry<BlockPos, Long> en : fed.entrySet()) {
+				if (now - en.getValue() <= GRACE_TICKS) continue; // recently fed -> keep, no flicker
+				BlockPos pos = en.getKey();
 				if (world.getBlockState(pos).getBlock() instanceof FluidBlock
 						&& world.getFluidState(pos).isStill()) {
 					world.setBlockState(pos, Blocks.AIR.getDefaultState(), 3);
 				}
 				toRemove.add(pos);
 			}
-			placed.removeAll(toRemove);
+			for (BlockPos pos : toRemove) fed.remove(pos);
 		}
 	}
 
