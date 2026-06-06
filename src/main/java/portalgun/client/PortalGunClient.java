@@ -35,16 +35,13 @@ public class PortalGunClient implements ClientModInitializer {
 			}
 		});
 
-		// Обводку и заливку тыла рисуем по ЖИВЫМ порталам клиентского мира.
+		// Цветную обводку рисуем по всем портал-пушка клиентского мира.
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(ctx -> {
 			ClientWorld world = ctx.world();
 			if (world == null) return;
 			for (Entity entity : world.getEntities()) {
 				if (entity instanceof Portal portal && PortalColorAccess.isPortalGun(portal)) {
-					int rgb = PortalColorAccess.getRgb(portal);
-					// §9: сначала сплошная заливка тыла, сверху — цветная обводка.
-					PortalFrameRenderer.drawBackFill(ctx, portal, rgb);
-					PortalFrameRenderer.drawOutline(ctx, portal, rgb);
+					PortalFrameRenderer.drawOutline(ctx, portal, PortalColorAccess.getRgb(portal));
 				}
 			}
 		});

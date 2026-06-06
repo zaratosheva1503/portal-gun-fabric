@@ -16,7 +16,6 @@ import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
 import portalgun.fluid.PortalFluidManager;
 import portalgun.item.PortalGunItem;
-import portalgun.portal.PortalBackWall;
 
 public class PortalGunMod implements ModInitializer {
 	public static final String MOD_ID = "portalgun";
@@ -54,14 +53,11 @@ public class PortalGunMod implements ModInitializer {
 				ItemStack stack = player.getMainHandStack();
 				if (stack.getItem() instanceof PortalGunItem) {
 					PortalGunItem.swapColors(stack);
-					player.sendMessage(Text.literal("Portal Gun: цвета слотов поменяны местами"), true);
+					player.sendMessage(Text.literal("Portal Gun: цвета слотов поменэны местами"), true);
 				}
 			}));
 
-		// Серверный тик: перекачка жидкости между порталами.
+		// Серверный тик: перекачка жидкости через порталы.
 		ServerTickEvents.END_WORLD_TICK.register(PortalFluidManager::onWorldTick);
-
-		// §9 Серверный тик: непроходимый тыл портала (барьер «зад→перёд»).
-		ServerTickEvents.END_WORLD_TICK.register(PortalBackWall::onWorldTick);
 	}
 }

@@ -17,13 +17,14 @@ import java.util.List;
  * Жидкость сквозь портал: жидкость, дошедшая до плоскости одного портала,
  * продолжается из парного.
  *
- * §10: дозируем перенос — раньше (раунд 1) лилось полным потоком. Теперь
- * увеличен период и ограничен уровень выходной жидкости, чтобы переносилось
- * «по чуть-чуть», без полного перелива и без луж.
+ * §10: дозируем перенос — увеличен период и ограничен уровень выходной жидкости.
+ * Детекция проверяет несколько клеток перед порталом, чтобы не пропустить точную точку входа.
  */
 public final class PortalFluidManager {
-	private static final int PERIOD = 10;          // реже, чтобы поток был слабее
-	private static final int MAX_EXIT_LEVEL = 2;   // максимум — тонкая струйка
+	/** Период тиков между проходами. */
+	private static final int PERIOD = 4;
+	/** Максимальный уровень жидкости на выходе. */
+	private static final int MAX_EXIT_LEVEL = 6;
 
 	private PortalFluidManager() {}
 
@@ -33,7 +34,9 @@ public final class PortalFluidManager {
 		for (Entity entity : world.iterateEntities()) {
 			if (!(entity instanceof Portal portal)) continue;
 			if (!PortalColorAccess.isPortalGun(portal)) continue;
-			if (portal.getDestPos() == null) continue;
+			// Используем публичное поле destination (подтверждёно в IP API),
+			// чтобы не зависеть от возможных проблем с getDestPos() в рантайме.
+			if (portal.destination == null) continue;
 
 			Vec3d normal = portal.getNormal();
 			for (BlockPos entry : entryCells(portal, normal)) {
@@ -41,19 +44,18 @@ public final class PortalFluidManager {
 				if (fs.isEmpty()) continue;
 
 				int level = fs.getLevel(); // 8 = источник, 1..7 = течёт
-				if (level <= 1) continue;
-
-				// дозируем: переносим мало, чтобы текло «по чуть-чуть»
-				int outLevel = Math.min(level - 1, MAX_EXIT_LEVEL);
-				if (outLevel < 1) continue;
+				// Принимаем любой непустой поток, включая уровень 1 (слабая струя).
+				int outLevel = Math.min(Math.max(level, 1), MAX_EXIT_LEVEL);
 
 				Vec3d exitWorld = portal.transformPoint(Vec3d.ofCenter(entry));
 				BlockPos exitPos = BlockPos.ofFloored(exitWorld);
 
+				// Сам портал-источник — не записываем в самое себя.
+				if (exitPos.equals(entry)) continue;
 				FluidState exitFs = world.getFluidState(exitPos);
-				// твёрдый блок на выходе — пропускаем
+				// Твёрдый блок на выходе без жидкости — пропускаем.
 				if (!world.getBlockState(exitPos).isAir() && exitFs.isEmpty()) continue;
-				// на выходе уже не меньше — не перетираем (анти-зацикливание пары)
+				// Уровень уже достаточный — не перезаписываем (анти-цикл).
 				if (!exitFs.isEmpty() && exitFs.getLevel() >= outLevel) continue;
 
 				placeFlowing(world, exitPos, fs, outLevel);
@@ -61,16 +63,24 @@ public final class PortalFluidManager {
 		}
 	}
 
-	// Все клетки воздуха перед плоскостью портала (1 шир. × 2 выс.).
+	/**
+	 * Клетки перед плоскостью портала, где ищем жидкость.
+	 * Проверяем на 0, 0.5 и 1.0 блока вдоль нормали, чтобы не пропустить
+	 * жидкость, вплотную прилегающую к входу портала.
+	 */
 	private static List<BlockPos> entryCells(Portal portal, Vec3d normal) {
 		List<BlockPos> cells = new ArrayList<>();
 		Vec3d origin = portal.getOriginPos();
-		double half = portal.height / 2.0;
-		for (double v = -half + 0.5; v < half; v += 1.0) {
-			Vec3d p = origin
-				.add(portal.axisH.multiply(v))
-				.add(normal.multiply(0.5));
-			cells.add(BlockPos.ofFloored(p));
+		double halfH = portal.height / 2.0;
+
+		for (double nOff = 0.0; nOff <= 1.0; nOff += 0.5) {
+			for (double v = -halfH + 0.5; v < halfH; v += 1.0) {
+				Vec3d p = origin
+					.add(portal.axisH.multiply(v))
+					.add(normal.multiply(nOff));
+				BlockPos bp = BlockPos.ofFloored(p);
+				if (!cells.contains(bp)) cells.add(bp);
+			}
 		}
 		return cells;
 	}

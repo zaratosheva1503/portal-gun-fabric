@@ -42,7 +42,6 @@ public class PortalSpawnManager {
 		Direction face = hit.getSide();
 		Vec3d normal = Vec3d.of(face.getVector());
 		BlockPos blockPos = hit.getBlockPos();
-		Vec3d hitPos = hit.getPos();
 
 		Vec3d origin;
 		Vec3d axisW;
@@ -60,10 +59,14 @@ public class PortalSpawnManager {
 				: blockPos.getY() - SURFACE_OFFSET;
 			origin = new Vec3d(blockPos.getX() + 0.5, cy, blockPos.getZ() + 0.5);
 		} else {
-			// --- СТЕНА: высота строго вверх, низ прибит к сетке блоков ---
+			// --- СТЕНА: высота строго вверх, центр привязан к сетке блока ---
 			axisH = new Vec3d(0.0, 1.0, 0.0);
 			axisW = axisH.crossProduct(normal).normalize();
-			double centerY = Math.floor(hitPos.y) + 1.0;     // центр ровно 2-блочного портала
+			// Центр по Y = blockPos.getY() + 1.0:
+			// портал занимает [blockPos.getY(), blockPos.getY()+2] — ровно 2 блока от низа стены.
+			// НЕ используем Math.floor(hitPos.y), чтобы избежать ошибок округления при попадании
+			// в нижнюю край грани блока, когда портал сдвигался на 1 блок вниз.
+			double centerY = blockPos.getY() + 1.0;
 			double cx = blockPos.getX() + 0.5 + normal.x * (0.5 + SURFACE_OFFSET);
 			double cz = blockPos.getZ() + 0.5 + normal.z * (0.5 + SURFACE_OFFSET);
 			origin = new Vec3d(cx, centerY, cz);
@@ -76,13 +79,11 @@ public class PortalSpawnManager {
 		portal.setDestination(origin); // временно, до линковки пары
 		// Овальная дыра как в Portal 2 — штатным хелпером IP (корректно и для рендера, и для коллизий).
 		PortalManipulation.makePortalRound(portal, ELLIPSE_SEGMENTS);
-		// §7/§14/§16: пусть IP сам «прорезает» твёрдую поверхность под/за порталом —
+		// §7/§14/§16: пусть IP сам «прорежает» твёрдую поверхность под/за порталом —
 		// тогда можно проваливаться сквозь пол/потолок, проходить в прыжке и пропускать снаряды.
 		portal.hasCrossPortalCollision = true;
 		portal.teleportable = true;
-		// §15/§7/§4: НЕ меняем направление гравитации при переходе. Иначе на полу/потолке
-		// игрока — и моба, и связку «наездник+маунт» (свинья, лошадь и т.п.) —
-		// разворачивает по гравитации портала и вдавливает в соседние блоки.
+		// §15/§7/§4: НЕ меняем направление гравитации при переходе.
 		portal.setTeleportChangesGravity(false);
 		PortalColorAccess.set(portal, channel, rgb);
 
@@ -94,7 +95,7 @@ public class PortalSpawnManager {
 		}
 
 		McHelper.spawnServerEntity(portal);
-		portal.reloadAndSyncToClientNextTick(); // пересчёт bounding box / коллизии + формы
+		portal.reloadAndSyncToClientNextTick();
 		remember(player, channel, portal.getUuid());
 
 		linkPair(world, player);
@@ -130,10 +131,8 @@ public class PortalSpawnManager {
 
 		// §13: разворот вида включается/выключается конфигом config/portalgun.json.
 		if (PortalGunConfig.get().rotateCameraOnTeleport) {
-			// Штатный расчёт разворота IP (с флипом вокруг axisH) — вид корректно ориентируется.
 			PortalManipulation.adjustRotationToConnect(blue, orange);
 		} else {
-			// Камера не крутится: переход «как есть», без вращающего преобразования.
 			blue.setRotation(null);
 			orange.setRotation(null);
 		}
