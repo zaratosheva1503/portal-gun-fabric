@@ -1,9 +1,9 @@
 package portalgun.fluid;
 
+import net.minecraft.block.Blocks;
+import net.minecraft.block.FluidBlock;
 import net.minecraft.entity.Entity;
-import net.minecraft.fluid.Fluid;
 import net.minecraft.fluid.FluidState;
-import net.minecraft.fluid.Fluids;
 import net.minecraft.registry.tag.FluidTags;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
@@ -12,29 +12,34 @@ import qouteall.imm_ptl.core.portal.Portal;
 import portalgun.portal.PortalColorAccess;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
- * Жидкость сквозь портал (§10).
+ * Fluids through portals (section 10).
  *
- * Надёжная, само-очищающаяся схема без бесконечной петли:
- *  1. У устья портала ищем ИСТОЧНИК жидкости (still): озеро, вылитое ведро и т.п.
- *  2. Если источник есть — льём ТЕКУЧУЮ жидкость в открытый блок у устья ПАРНОГО портала
- *     (в воздух перед порталом, куда вода реально может встать).
- *  3. Детектируем только ИСТОЧНИКИ, а льём только ТЕКУЧУЮ жидкость → парный портал
- *     никогда не примет наш поток за «вход» → петли нет.
- *  4. Пропал источник на входе — текучая жидкость на выходе исчезает сама за ~секунду.
+ * Strategy: if there is a STILL fluid source at a portal's entrance, place a stable
+ * SOURCE block in the AIR block in front of the partner portal. A source persists,
+ * is clearly visible and spreads like real water. We track the positions we placed so
+ * we can (a) remove them when the entrance source is gone, and (b) ignore our own placed
+ * sources during detection so there is no feedback loop.
  */
 public final class PortalFluidManager {
-	/** Период тиков между проходами (мало — чтобы струя не мерцала). */
-	private static final int PERIOD = 2;
+	private static final int PERIOD = 5;
+
+	// Source blocks WE placed at portal exits, per world.
+	private static final Map<ServerWorld, Set<BlockPos>> PLACED = new HashMap<>();
 
 	private PortalFluidManager() {}
 
 	public static void onWorldTick(ServerWorld world) {
 		if (world.getTime() % PERIOD != 0) return;
 
-		// Собираем все порталы-пушки этого мира.
+		Set<BlockPos> placed = PLACED.computeIfAbsent(world, w -> new HashSet<>());
+
 		List<Portal> portals = new ArrayList<>();
 		for (Entity e : world.iterateEntities()) {
 			if (e instanceof Portal p && PortalColorAccess.isPortalGun(p) && p.destination != null) {
@@ -42,52 +47,69 @@ public final class PortalFluidManager {
 			}
 		}
 
+		Set<BlockPos> activeNow = new HashSet<>();
+
 		for (Portal portal : portals) {
-			FluidState src = findSourceAtEntry(world, portal);
-			if (src == null) continue;
+			boolean lava = hasSourceAtEntry(world, portal, placed, true);
+			boolean water = lava ? false : hasSourceAtEntry(world, portal, placed, false);
+			if (!lava && !water) continue;
 
 			Portal partner = findPartner(portals, portal);
 			if (partner == null) continue;
 
-			BlockPos exit = mouthBlock(partner);
-			if (exit == null || !canPlaceFluid(world, exit)) continue;
+			BlockPos exit = exitBlock(partner);
+			if (exit == null || !canPlace(world, exit, placed)) continue;
 
-			placeFlowing(world, exit, src);
+			world.setBlockState(exit, (lava ? Blocks.LAVA : Blocks.WATER).getDefaultState(), 3);
+			placed.add(exit);
+			activeNow.add(exit);
+		}
+
+		// Cleanup: sources we placed but that are no longer fed by an entrance -> revert to air.
+		if (!placed.isEmpty()) {
+			List<BlockPos> toRemove = new ArrayList<>();
+			for (BlockPos pos : placed) {
+				if (activeNow.contains(pos)) continue;
+				if (world.getBlockState(pos).getBlock() instanceof FluidBlock
+						&& world.getFluidState(pos).isStill()) {
+					world.setBlockState(pos, Blocks.AIR.getDefaultState(), 3);
+				}
+				toRemove.add(pos);
+			}
+			placed.removeAll(toRemove);
 		}
 	}
 
-	/**
-	 * Ищем ИСТОЧНИК жидкости у входа портала — по всей высоте,
-	 * чуть перед плоскостью, на плоскости и сразу за ней.
-	 */
-	private static FluidState findSourceAtEntry(ServerWorld world, Portal portal) {
+	/** Is there a STILL source of the wanted type at the portal entrance (ignoring our own placed sources)? */
+	private static boolean hasSourceAtEntry(ServerWorld world, Portal portal, Set<BlockPos> placed, boolean wantLava) {
 		Vec3d normal = portal.getNormal();
 		Vec3d origin = portal.getOriginPos();
 		double halfH = portal.height / 2.0;
 
 		for (double v = -halfH + 0.5; v < halfH; v += 1.0) {
-			for (double nOff = -0.3; nOff <= 1.0; nOff += 0.65) {
-				Vec3d p = origin
-					.add(portal.axisH.multiply(v))
-					.add(normal.multiply(nOff));
-				FluidState fs = world.getFluidState(BlockPos.ofFloored(p));
-				if (!fs.isEmpty() && fs.isStill()) return fs;
+			for (double nOff = -0.3; nOff <= 1.0; nOff += 0.45) {
+				BlockPos bp = BlockPos.ofFloored(
+					origin.add(portal.axisH.multiply(v)).add(normal.multiply(nOff)));
+				if (placed.contains(bp)) continue; // our own placed source -> skip (no loop)
+				FluidState fs = world.getFluidState(bp);
+				if (fs.isEmpty() || !fs.isStill()) continue;
+				boolean isLava = fs.isIn(FluidTags.LAVA);
+				if (isLava == wantLava) return true;
 			}
 		}
-		return null;
+		return false;
 	}
 
-	/** Открытый блок у устья портала, куда выливаем жидкость. */
-	private static BlockPos mouthBlock(Portal partner) {
-		return BlockPos.ofFloored(partner.getOriginPos());
+	/** The AIR block right in FRONT of the partner's mouth, where the fluid pours out. */
+	private static BlockPos exitBlock(Portal partner) {
+		return BlockPos.ofFloored(partner.getOriginPos().add(partner.getNormal().multiply(0.5)));
 	}
 
-	/** Парный портал — ближайший к точке назначения. */
 	private static Portal findPartner(List<Portal> portals, Portal portal) {
 		Vec3d dest = portal.destination;
 		if (dest == null) return null;
 		Portal best = null;
-		double bestD = 1.0; // не дальше ~1 блока от точки назначения
+		double bestD = 1.0;
 		for (Portal p : portals) {
 			if (p == portal) continue;
 			double d = p.getOriginPos().squaredDistanceTo(dest);
@@ -96,22 +118,10 @@ public final class PortalFluidManager {
 		return best;
 	}
 
-	/** Можно ли поставить жидкость: воздух или уже жидкость (твёрдое не трогаем). */
-	private static boolean canPlaceFluid(ServerWorld world, BlockPos pos) {
+	/** Placeable if air or already a fluid / our own placed pos; never overwrite solid blocks. */
+	private static boolean canPlace(ServerWorld world, BlockPos pos, Set<BlockPos> placed) {
+		if (placed.contains(pos)) return true;
 		if (world.getBlockState(pos).isAir()) return true;
 		return !world.getFluidState(pos).isEmpty();
-	}
-
-	private static void placeFlowing(ServerWorld world, BlockPos pos, FluidState src) {
-		boolean lava = src.isIn(FluidTags.LAVA);
-		Fluid fluid = lava ? Fluids.FLOWING_LAVA : Fluids.FLOWING_WATER;
-		// Полный «падающий» поток (level 8, falling) — чтобы вода уверенно лилась и растекалась.
-		FluidState flowing = ((net.minecraft.fluid.FlowableFluid) fluid).getFlowing(8, true);
-
-		FluidState cur = world.getFluidState(pos);
-		if (cur.getFluid() == fluid && cur.getLevel() >= 8) return; // уже льётся — не дёргаем
-
-		world.setBlockState(pos, flowing.getBlockState(), 3);
-		world.scheduleFluidTick(pos, fluid, fluid.getTickRate(world));
 	}
 }
