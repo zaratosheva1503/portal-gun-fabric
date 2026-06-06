@@ -58,6 +58,9 @@ public class PortalSpawnManager {
 				? blockPos.getY() + 1.0 + SURFACE_OFFSET
 				: blockPos.getY() - SURFACE_OFFSET;
 			origin = new Vec3d(blockPos.getX() + 0.5, cy, blockPos.getZ() + 0.5);
+			// Ровно 2 блока: сдвигаем центр на полблока в сторону взгляда, чтобы длинная
+			// ось (2) крыла 2 ЦЕЛЫХ блока (текущий + следующий), а не «половинки» соседних.
+			origin = origin.add(axisH.multiply(0.5));
 		} else {
 			// --- СТЕНА: высота строго вверх, центр привязан к сетке блока ---
 			axisH = new Vec3d(0.0, 1.0, 0.0);

@@ -15,8 +15,9 @@ import qouteall.imm_ptl.core.portal.Portal;
  * Рисуется поверх штатного рендера сквозной поверхности Immersive Portals.
  */
 public final class PortalFrameRenderer {
-	private static final int SEGMENTS = 48;       // гладкость овала
-	private static final double RING_SCALE = 1.0; // 1.0 = овал касается краёв портала
+	private static final int SEGMENTS = 48;        // гладкость овала
+	private static final double RING_SCALE = 1.1;  // чуть крупнее краёв портала — заметная рамка
+	private static final double CAM_LIFT = 0.05;   // приподнять к камере, чтобы не тонула в поверхности
 
 	private PortalFrameRenderer() {}
 
@@ -27,7 +28,13 @@ public final class PortalFrameRenderer {
 		Camera cam = ctx.camera();
 		Vec3d camPos = cam.getPos();
 
+		Vec3d normal = portal.getNormal();
 		Vec3d o = portal.getOriginPos();
+		// Сдвигаем обводку чуть В СТОРОНУ КАМЕРЫ по нормали портала, чтобы линия
+		// не совпадала с плоскостью пола/стены и не пропадала из-за z-файтинга/перекрытия.
+		double side = camPos.subtract(o).dotProduct(normal) >= 0 ? 1.0 : -1.0;
+		o = o.add(normal.multiply(CAM_LIFT * side));
+
 		// полуоси эллипса вдоль ширины и высоты портала
 		Vec3d w = portal.axisW.multiply(portal.width / 2.0 * RING_SCALE);
 		Vec3d h = portal.axisH.multiply(portal.height / 2.0 * RING_SCALE);

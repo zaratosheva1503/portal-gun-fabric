@@ -1,6 +1,7 @@
 package portalgun.fluid;
 
 import net.minecraft.entity.Entity;
+import net.minecraft.fluid.Fluid;
 import net.minecraft.fluid.FluidState;
 import net.minecraft.fluid.Fluids;
 import net.minecraft.registry.tag.FluidTags;
@@ -14,83 +15,103 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Жидкость сквозь портал: жидкость, дошедшая до плоскости одного портала,
- * продолжается из парного.
+ * Жидкость сквозь портал (§10).
  *
- * §10: дозируем перенос — увеличен период и ограничен уровень выходной жидкости.
- * Детекция проверяет несколько клеток перед порталом, чтобы не пропустить точную точку входа.
+ * Надёжная, само-очищающаяся схема без бесконечной петли:
+ *  1. У устья портала ищем ИСТОЧНИК жидкости (still): озеро, вылитое ведро и т.п.
+ *  2. Если источник есть — льём ТЕКУЧУЮ жидкость в открытый блок у устья ПАРНОГО портала
+ *     (в воздух перед порталом, куда вода реально может встать).
+ *  3. Детектируем только ИСТОЧНИКИ, а льём только ТЕКУЧУЮ жидкость → парный портал
+ *     никогда не примет наш поток за «вход» → петли нет.
+ *  4. Пропал источник на входе — текучая жидкость на выходе исчезает сама за ~секунду.
  */
 public final class PortalFluidManager {
-	/** Период тиков между проходами. */
-	private static final int PERIOD = 4;
-	/** Максимальный уровень жидкости на выходе. */
-	private static final int MAX_EXIT_LEVEL = 6;
+	/** Период тиков между проходами (мало — чтобы струя не мерцала). */
+	private static final int PERIOD = 2;
 
 	private PortalFluidManager() {}
 
 	public static void onWorldTick(ServerWorld world) {
 		if (world.getTime() % PERIOD != 0) return;
 
-		for (Entity entity : world.iterateEntities()) {
-			if (!(entity instanceof Portal portal)) continue;
-			if (!PortalColorAccess.isPortalGun(portal)) continue;
-			// Используем публичное поле destination (подтверждёно в IP API),
-			// чтобы не зависеть от возможных проблем с getDestPos() в рантайме.
-			if (portal.destination == null) continue;
-
-			Vec3d normal = portal.getNormal();
-			for (BlockPos entry : entryCells(portal, normal)) {
-				FluidState fs = world.getFluidState(entry);
-				if (fs.isEmpty()) continue;
-
-				int level = fs.getLevel(); // 8 = источник, 1..7 = течёт
-				// Принимаем любой непустой поток, включая уровень 1 (слабая струя).
-				int outLevel = Math.min(Math.max(level, 1), MAX_EXIT_LEVEL);
-
-				Vec3d exitWorld = portal.transformPoint(Vec3d.ofCenter(entry));
-				BlockPos exitPos = BlockPos.ofFloored(exitWorld);
-
-				// Сам портал-источник — не записываем в самое себя.
-				if (exitPos.equals(entry)) continue;
-				FluidState exitFs = world.getFluidState(exitPos);
-				// Твёрдый блок на выходе без жидкости — пропускаем.
-				if (!world.getBlockState(exitPos).isAir() && exitFs.isEmpty()) continue;
-				// Уровень уже достаточный — не перезаписываем (анти-цикл).
-				if (!exitFs.isEmpty() && exitFs.getLevel() >= outLevel) continue;
-
-				placeFlowing(world, exitPos, fs, outLevel);
+		// Собираем все порталы-пушки этого мира.
+		List<Portal> portals = new ArrayList<>();
+		for (Entity e : world.iterateEntities()) {
+			if (e instanceof Portal p && PortalColorAccess.isPortalGun(p) && p.destination != null) {
+				portals.add(p);
 			}
+		}
+
+		for (Portal portal : portals) {
+			FluidState src = findSourceAtEntry(world, portal);
+			if (src == null) continue;
+
+			Portal partner = findPartner(portals, portal);
+			if (partner == null) continue;
+
+			BlockPos exit = mouthBlock(partner);
+			if (exit == null || !canPlaceFluid(world, exit)) continue;
+
+			placeFlowing(world, exit, src);
 		}
 	}
 
 	/**
-	 * Клетки перед плоскостью портала, где ищем жидкость.
-	 * Проверяем на 0, 0.5 и 1.0 блока вдоль нормали, чтобы не пропустить
-	 * жидкость, вплотную прилегающую к входу портала.
+	 * Ищем ИСТОЧНИК жидкости у входа портала — по всей высоте,
+	 * чуть перед плоскостью, на плоскости и сразу за ней.
 	 */
-	private static List<BlockPos> entryCells(Portal portal, Vec3d normal) {
-		List<BlockPos> cells = new ArrayList<>();
+	private static FluidState findSourceAtEntry(ServerWorld world, Portal portal) {
+		Vec3d normal = portal.getNormal();
 		Vec3d origin = portal.getOriginPos();
 		double halfH = portal.height / 2.0;
 
-		for (double nOff = 0.0; nOff <= 1.0; nOff += 0.5) {
-			for (double v = -halfH + 0.5; v < halfH; v += 1.0) {
+		for (double v = -halfH + 0.5; v < halfH; v += 1.0) {
+			for (double nOff = -0.3; nOff <= 1.0; nOff += 0.65) {
 				Vec3d p = origin
 					.add(portal.axisH.multiply(v))
 					.add(normal.multiply(nOff));
-				BlockPos bp = BlockPos.ofFloored(p);
-				if (!cells.contains(bp)) cells.add(bp);
+				FluidState fs = world.getFluidState(BlockPos.ofFloored(p));
+				if (!fs.isEmpty() && fs.isStill()) return fs;
 			}
 		}
-		return cells;
+		return null;
 	}
 
-	private static void placeFlowing(ServerWorld world, BlockPos pos, FluidState src, int level) {
+	/** Открытый блок у устья портала, куда выливаем жидкость. */
+	private static BlockPos mouthBlock(Portal partner) {
+		return BlockPos.ofFloored(partner.getOriginPos());
+	}
+
+	/** Парный портал — ближайший к точке назначения. */
+	private static Portal findPartner(List<Portal> portals, Portal portal) {
+		Vec3d dest = portal.destination;
+		if (dest == null) return null;
+		Portal best = null;
+		double bestD = 1.0; // не дальше ~1 блока от точки назначения
+		for (Portal p : portals) {
+			if (p == portal) continue;
+			double d = p.getOriginPos().squaredDistanceTo(dest);
+			if (d < bestD) { bestD = d; best = p; }
+		}
+		return best;
+	}
+
+	/** Можно ли поставить жидкость: воздух или уже жидкость (твёрдое не трогаем). */
+	private static boolean canPlaceFluid(ServerWorld world, BlockPos pos) {
+		if (world.getBlockState(pos).isAir()) return true;
+		return !world.getFluidState(pos).isEmpty();
+	}
+
+	private static void placeFlowing(ServerWorld world, BlockPos pos, FluidState src) {
 		boolean lava = src.isIn(FluidTags.LAVA);
-		FluidState flowing = (lava ? Fluids.FLOWING_LAVA : Fluids.FLOWING_WATER)
-				.getFlowing(Math.min(8, Math.max(1, level)), false);
+		Fluid fluid = lava ? Fluids.FLOWING_LAVA : Fluids.FLOWING_WATER;
+		// Полный «падающий» поток (level 8, falling) — чтобы вода уверенно лилась и растекалась.
+		FluidState flowing = ((net.minecraft.fluid.FlowableFluid) fluid).getFlowing(8, true);
+
+		FluidState cur = world.getFluidState(pos);
+		if (cur.getFluid() == fluid && cur.getLevel() >= 8) return; // уже льётся — не дёргаем
+
 		world.setBlockState(pos, flowing.getBlockState(), 3);
-		world.scheduleFluidTick(pos, flowing.getFluid(),
-				flowing.getFluid().getTickRate(world));
+		world.scheduleFluidTick(pos, fluid, fluid.getTickRate(world));
 	}
 }
